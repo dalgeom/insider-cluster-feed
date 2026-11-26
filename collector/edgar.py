@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import timedelta
 
@@ -39,6 +40,14 @@ def index_url(path):
 def daily_index_url(d):
     q = (d.month - 1) // 3 + 1
     return f"{ARCHIVES}edgar/daily-index/{d.year}/QTR{q}/form.{d:%Y%m%d}.idx"
+
+
+def quarter_listing_url(d):
+    return daily_index_url(d).rsplit("/", 1)[0] + "/index.json"
+
+
+def parse_listing(text):
+    return {item["name"] for item in json.loads(text)["directory"]["item"]}
 
 
 def extract_xml(raw):

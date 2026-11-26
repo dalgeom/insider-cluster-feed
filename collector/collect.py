@@ -98,6 +98,18 @@ def _process(transport, entry, state, new_rows):
     state["failed"].pop(acc, None)
 
 
+def _listed(transport, d, today, cache):
+    url = edgar.quarter_listing_url(d)
+    if url not in cache:
+        try:
+            cache[url] = edgar.parse_listing(transport.get(url))
+        except (NotFound, urllib.error.HTTPError):
+            if d == today:  # 분기 첫날엔 디렉터리가 아직 없을 수 있다
+                return False
+            raise
+    return edgar.daily_index_url(d).rsplit("/", 1)[1] in cache[url]
+
+
 def _start(state, today, backfill_days):
     if backfill_days:
         return today - timedelta(days=backfill_days)
@@ -121,12 +133,18 @@ def run(transport, today, backfill_days=0, data_path=DATA_PATH, state_path=STATE
     transport = _Paced(transport, sleep, clock)
     retry = list(state["failed"].items())
     new_rows = []
+    listings = {}
     try:
         for d in edgar.business_days(_start(state, today, backfill_days), today):
             try:
                 text = transport.get(edgar.daily_index_url(d))
             except NotFound:
                 continue
+            except urllib.error.HTTPError as e:
+                # SEC는 없는 인덱스(공휴일·미게시)에 403을 준다. 분기 목록에 없을 때만 건너뛴다.
+                if e.code == 403 and not _listed(transport, d, today, listings):
+                    continue
+                raise
             for entry in edgar.parse_daily_index(text):
                 acc = edgar.accession_from_path(entry["path"])
                 if acc in state["done"] or acc in state["failed"]:
